@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>컬러 추출 Pantone 매칭</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    .preview { max-width: 300px; margin-top: 10px; display:block; }
+    .color-box { width: 120px; height: 120px; border: 1px solid #ccc; margin-top: 10px; }
+    #resultCanvas { display:block; max-width:100%; margin-top:20px; border:1px solid #ccc; }
+    button { padding:8px 12px; margin-left:6px; }
+  </style>
+</head>
+<body>
+  <h2>2026년 올해의 컬러 <span id="yearWord">OO</span>의 색</h2>
+  <input type="file" id="imageInput" accept="image/*" />
+  <input type="text" id="wordInput" placeholder="예: 복실 강아지" />
+  <button id="applyWord">텍스트 적용</button>
+  <div id="imagePreview"></div>
+
+  <div>
+    <h3>Pantone 매칭 결과</h3>
+    <div id="pantoneBox" class="color-box"></div>
+    <p id="pantoneName"></p>
+  </div>
+
+  <canvas id="resultCanvas"></canvas>
+
+  <script>
+    // 한 번만 선언: Pantone 색상 샘플 (필요 시 확장)
+    const pantoneColors = [
+      { name: "Cloud Dancer", code: "11-4201 TCX", rgb: [240, 240, 235] },
+      { name: "Ultimate Gray", code: "17-5104 TCX", rgb: [147, 149, 151] },
+      { name: "Illuminating", code: "13-0647 TCX", rgb: [245, 223, 77] },
+      { name: "Classic Blue", code: "19-4052 TCX", rgb: [15, 76, 129] }
+    ];
+
+    // 유틸리티 함수들
+    function getDominantColor(ctx, width, height) {
+      const data = ctx.getImageData(0, 0, width, height).data;
+      let r = 0, g = 0, b = 0, count = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        // 간단한 밝기 필터: 완전 투명 픽셀 무시 (alpha 값이 있으면 처리 가능)
+        r += data[i];
+        g += data[i+1];
+        b += data[i+2];
+        count++;
+      }
+      if (count === 0) return [255,255,255];
+      return [ Math.round(r/count), Math.round(g/count), Math.round(b/count) ];
+    }
+
+    function colorDistance(c1, c2) {
+      return Math.sqrt(
+        Math.pow(c1[0]-c2[0], 2) +
+        Math.pow(c1[1]-c2[1], 2) +
+        Math.pow(c1[2]-c2[2], 2)
+      );
+    }
+
+    function findClosestPantone(rgb) {
+      let closest = null;
+      let minDist = Infinity;
+      for (const p of pantoneColors) {
+        const dist = colorDistance(rgb, p.rgb);
+        if (dist < minDist) {
+          minDist = dist;
+          closest = p;
+        }
+      }
+      return closest || pantoneColors[0];
+    }
+
+    // DOM 요소
+    const imageInput = document.getElementById('imageInput');
+    const wordInput = document.getElementById('wordInput');
+    const applyWordBtn = document.getElementById('applyWord');
+    const yearWordSpan = document.getElementById('yearWord');
+    const pantoneBox = document.getElementById('pantoneBox');
+    const pantoneNameP = document.getElementById('pantoneName');
+    const previewDiv = document.getElementById('imagePreview');
+    const resultCanvas = document.getElementById('resultCanvas');
+    const ctxResult = resultCanvas.getContext('2d');
+
+    let currentImage = null;
+    let currentPantone = null;
+
+    // 텍스트 줄바꿈 유틸
+    function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+      const words = text.split(' ');
+      let line = '';
+      for (let n = 0; n < words.length; n++) {
+        const testLine = line + words[n] + ' ';
+        const metrics = ctx.measureText(testLine);
+        if (metrics.width > maxWidth && n > 0) {
+          ctx.fillText(line.trim(), x, y);
+          line = words[n] + ' ';
+          y += lineHeight;
+        } else {
+          line = testLine;
+        }
+      }
+      if (line) ctx.fillText(line.trim(), x, y);
+    }
+
+    function drawComposite(img, pantone, wordText) {
+      // 캔버스 크기 설정: 화면 너비를 넘지 않도록
+      const maxWidth = 900;
+      const scale = Math.min(1, maxWidth / img.width);
+      const w = Math.max(100, Math.round(img.width * scale));
+      const h = Math.max(100, Math.round(img.height * scale));
+      resultCanvas.width = w;
+      resultCanvas.height = h;
+
+      // 이미지
+      ctxResult.clearRect(0,0,w,h);
+      ctxResult.drawImage(img, 0, 0, w, h);
+
+      // 아래쪽 반투명 박스
+      const padding = Math.round(w * 0.03);
+      const boxHeight = Math.round(h * 0.18);
+      ctxResult.fillStyle = 'rgba(0,0,0,0.35)';
+      ctxResult.fillRect(padding, h - boxHeight - padding, w - padding*2, boxHeight);
+
+      // 제목 텍스트
+      ctxResult.fillStyle = '#ffffff';
+      const title = `2026년 올해의 컬러 ${wordText}의 색`;
+      const titleFontSize = Math.max(12, Math.round(boxHeight * 0.35));
+      ctxResult.font = `bold ${titleFontSize}px sans-serif`;
+      ctxResult.textBaseline = 'top';
+      const titleX = padding + 10;
+      const titleY = h - boxHeight - padding + 10;
+      // 줄바꿈 처리(너무 길면)
+      const titleMaxWidth = w - padding*2 - (boxHeight * 0.6) - 30; // 남길 공간 계산
+      wrapText(ctxResult, title, titleX, titleY, titleMaxWidth, Math.round(titleFontSize * 1.2));
+
+      // Pantone 색상 네모
+      const squareSize = Math.round(boxHeight * 0.6);
+      const squareX = w - padding - squareSize - 10;
+      const squareY = h - boxHeight - padding + 10;
+      ctxResult.fillStyle = `rgb(${pantone.rgb[0]}, ${pantone.rgb[1]}, ${pantone.rgb[2]})`;
+      ctxResult.fillRect(squareX, squareY, squareSize, squareSize);
+
+      // Pantone 이름/코드 (흰색 텍스트)
+      ctxResult.fillStyle = '#ffffff';
+      const labelFontSize = Math.max(10, Math.round(titleFontSize * 0.65));
+      ctxResult.font = `${labelFontSize}px sans-serif`;
+      const label = `${pantone.name} (${pantone.code})`;
+      // 위치: 왼쪽으로 적당히 떨어진 곳
+      const nameX = Math.max(padding + 10, squareX - 10 - Math.round(w * 0.45));
+      const nameY = squareY;
+      wrapText(ctxResult, label, nameX, nameY, Math.round(w * 0.45), Math.round(labelFontSize * 1.2));
+    }
+
+    function updatePantoneUI(pantone) {
+      pantoneBox.style.background = `rgb(${pantone.rgb[0]}, ${pantone.rgb[1]}, ${pantone.rgb[2]})`;
+      pantoneNameP.textContent = `${pantone.name} (${pantone.code})`;
+    }
+
+    // 이미지 업로드 핸들러
+    imageInput.addEventListener('change', e => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = URL.createObjectURL(file);
+      img.onload = () => {
+        // 미리보기
+        previewDiv.innerHTML = '';
+        const previewImg = img.cloneNode();
+        previewImg.className = 'preview';
+        previewDiv.appendChild(previewImg);
+
+        // 임시 캔버스에 축소하여 색 추출
+        const tmp = document.createElement('canvas');
+        const tctx = tmp.getContext('2d');
+        const sw = 200;
+        const sh = Math.max(1, Math.round(sw * (img.height / img.width)));
+        tmp.width = sw; tmp.height = sh;
+        tctx.drawImage(img, 0, 0, sw, sh);
+        const dominant = getDominantColor(tctx, sw, sh);
+        const pantone = findClosestPantone(dominant);
+
+        currentImage = img;
+        currentPantone = pantone;
+        updatePantoneUI(pantone);
+
+        const wordText = (wordInput.value.trim() || 'OO');
+        yearWordSpan.textContent = wordText;
+
+        drawComposite(img, pantone, wordText);
+      };
+
+      img.onerror = () => {
+        alert('이미지를 불러오지 못했습니다. 다른 파일을 시도해 주세요.');
+      };
+    });
+
+    // 텍스트 적용
+    applyWordBtn.addEventListener('click', () => {
+      const text = wordInput.value.trim() || 'OO';
+      yearWordSpan.textContent = text;
+      if (currentImage && currentPantone) {
+        drawComposite(currentImage, currentPantone, text);
+      }
+    });
+
+    // 다운로드 버튼
+    (function addDownloadButton(){
+      const dlBtn = document.createElement('button');
+      dlBtn.textContent = '결과 다운로드 (PNG)';
+      dlBtn.style.display = 'inline-block';
+      dlBtn.style.marginTop = '10px';
+      dlBtn.addEventListener('click', () => {
+        if (!resultCanvas.toDataURL) return;
+        const link = document.createElement('a');
+        link.download = 'pantone_result.png';
+        link.href = resultCanvas.toDataURL('image/png');
+        link.click();
+      });
+      document.body.appendChild(dlBtn);
+    })();
+
+    // 기본 테스트 데이터: 개발 시 빠르게 확인하려면 아래 주석을 해제하고 로컬 이미지 경로 사용
+    // 예: document.getElementById('imageInput').files 프로그래밍 설정은 브라우저 보안상 제한이 있으므로
+    // 수동으로 파일을 선택해 테스트하세요.
+
+  </script>
+</body>
+</html>

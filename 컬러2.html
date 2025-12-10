@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>2026 올해의 컬러 - 모바일용</title>
+<style>
+  :root{
+    --bg:#0f1720;
+    --card:#0b1220;
+    --accent:#fff;
+  }
+  html,body{height:100%;margin:0;font-family:system-ui,-apple-system,'Segoe UI','Noto Sans KR',Roboto,Arial;background:var(--bg);color:#fff}
+  .wrap{max-width:900px;margin:0 auto;padding:18px;box-sizing:border-box}
+  h1{font-size:18px;margin:0 0 12px 0;font-weight:700;text-align:center}
+  .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center;margin-bottom:12px}
+  .controls label{background:#0b1320;border:1px dashed #233047;padding:10px 12px;border-radius:10px;cursor:pointer;font-size:14px}
+  input[type=file]{display:none}
+  input[type=text]{min-width:140px;padding:10px;border-radius:10px;border:1px solid #223244;background:#07101a;color:#fff;font-size:15px}
+  button#complete{background:#fff;color:#07101a;border:none;padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer}
+  a#download{display:none;background:#1f2937;color:#fff;padding:10px 12px;border-radius:10px;text-decoration:none;font-weight:700}
+  .hint{font-size:13px;color:#9aa6bd;text-align:center;margin-bottom:10px}
+  .preview-wrap{position:relative;border-radius:12px;overflow:hidden;background:#000;margin:0 auto;max-width:100%}
+  #previewImage{display:block;width:100%;height:auto;max-height:60vh;object-fit:contain}
+  .pantone-preview{position:absolute;right:6%;top:50%;transform:translateY(-50%);width:25%;min-width:96px;max-width:320px;border-radius:8px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,.6);display:none}
+  .pantone-swatch{height:60%}
+  .pantone-meta{background:#fff;color:#111;padding:10px;font-size:13px}
+  .output-preview{position:absolute;left:4%;bottom:4%;color:#fff;text-shadow:0 2px 6px rgba(0,0,0,.5);display:none}
+  .output-preview .year{font-weight:800;font-size:20px}
+  .output-preview .name{font-weight:900;font-size:22px;margin-top:4px}
+
+  canvas#result{display:none;width:100%;height:auto;border-radius:12px;background:#000}
+  /* 모바일 최적화 */
+  @media (max-width:480px){
+    .controls{gap:6px}
+    .pantone-preview{width:30%}
+    .output-preview .year{font-size:18px}
+    .output-preview .name{font-size:20px}
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>2026 올해의 컬러 — 사진에서 팬톤 매칭</h1>
+
+    <div class="controls">
+      <label id="fileLabel">사진 선택<input id="fileInput" type="file" accept="image/*"></label>
+      <input id="nameInput" type="text" placeholder="예: 꼬질 이환희">
+      <button id="complete">완성하기</button>
+      <a id="download" download="pantone_result.png">다운로드</a>
+    </div>
+
+    <div class="hint">사진 업로드 후 '완성하기'를 누르면 자동으로 주요 색을 추출해 가장 가까운 팬톤 색으로 매치하고, 합성된 이미지를 보여줍니다.</div>
+
+    <div class="preview-wrap" id="previewWrap">
+      <img id="previewImage" src="" alt="preview 이미지 (업로드 필요)">
+      <div class="pantone-preview" id="pantonePreview">
+        <div class="pantone-swatch" id="swatch" style="background:#e7e7e4"></div>
+        <div class="pantone-meta">
+          <div style="font-weight:800">PANTONE</div>
+          <div id="pantoneCode">—</div>
+          <div id="pantoneName">—</div>
+        </div>
+      </div>
+
+      <div class="output-preview" id="outputPreview">
+        <div class="year">2026년 올해의 컬러</div>
+        <div class="name" id="previewName">OO OOO의 색</div>
+      </div>
+    </div>
+
+    <canvas id="result"></canvas>
+  </div>
+
+<script>
+/* ---------------------------
+   간단 팬톤 샘플 목록 (확장 가능)
+   각 항목: {code,name,rgb:[r,g,b]}
+   실제 팬톤 라이브러리로 확장하면 매칭 정밀도 향상.
+----------------------------*/
+const PANTONE_LIST = [
+  {code:'11-4201 TCX', name:'Cloud Dancer', rgb:[238,238,236]},
+  {code:'13-4104 TCX', name:'Porcelain', rgb:[236,236,233]},
+  {code:'12-4308 TCX', name:'Snow White', rgb:[241,241,240]},
+  {code:'14-1905 TCX', name:'Peach Bud', rgb:[248,222,217]},
+  {code:'17-1463 TCX', name:'Fiery Red', rgb:[207,75,55]},
+  {code:'18-3838 TCX', name:'Ultra Violet', rgb:[95,58,114]},
+  {code:'15-1214 TCX', name:'Warm Sand', rgb:[210,180,149]},
+  {code:'16-1546 TCX', name:'Living Coral', rgb:[255,111,97]},
+  {code:'19-3952 TCX', name:'Sapphire', rgb:[18,69,126]},
+  {code:'19-4052 TCX', name:'Classic Blue', rgb:[15,76,129]},
+  {code:'13-0646 TCX', name:'Illuminating', rgb:[255,223,0]},
+  {code:'11-0601 TCX', name:'Bright White', rgb:[255,255,255]},
+  {code:'19-1530 TCX', name:'Burgundy', rgb:[128,24,24]},
+  {code:'16-1543 TCX', name:'Peach Echo', rgb:[255,179,153]},
+  {code:'17-0956 TCX', name:'Golden Rod', rgb:[211,151,30]},
+  {code:'18-0107 TCX', name:'Olive', rgb:[115,113,86]}
+];
+
+/* DOM */
+const fileInput = document.getElementById('fileInput');
+const previewImage = document.getElementById('previewImage');
+const previewWrap = document.getElementById('previewWrap');
+const pantonePreview = document.getElementById('pantonePreview');
+const swatch = document.getElementById('swatch');
+const pantoneCode = document.getElementById('pantoneCode');
+const pantoneName = document.getElementById('pantoneName');
+const outputPreview = document.getElementById('outputPreview');
+const previewName = document.getElementById('previewName');
+const nameInput = document.getElementById('nameInput');
+const completeBtn = document.getElementById('complete');
+const downloadLink = document.getElementById('download');
+const canvas = document.getElementById('result');
+const ctx = canvas.getContext('2d');
+
+/* 파일 선택 시 바로 미리보기(원본 이미지) */
+fileInput.addEventListener('change', e=>{
+  const f = e.target.files && e.target.files[0];
+  if(!f) return;
+  previewImage.src = URL.createObjectURL(f);
+  previewImage.onload = ()=> {
+    // show preview elements
+    pantonePreview.style.display = 'none';
+    outputPreview.style.display = 'none';
+    canvas.style.display = 'none';
+    downloadLink.style.display = 'none';
+  };
+});
+
+/* 메인: 완성하기 버튼
+   1) 이미지 로드 확인
+   2) 주요색 추출 (k-means 기반 샘플링 함수 사용)
+   3) 팬톤 매칭 (유클리드 거리)
+   4) 캔버스에 합성 (이미지 배경, 오른쪽 중앙 팬톤 박스(폭 25%), 왼쪽 하단 2줄 큰 흰 글씨)
+*/
+completeBtn.addEventListener('click', async ()=>{
+  if(!previewImage.src) return alert('사진을 먼저 선택하세요.');
+  await waitImageLoad(previewImage);
+
+  // 1) 주요색 추출
+  const dominant = sampleDominantColor(previewImage, 5); // [r,g,b]
+  const nearest = findNearestPantone(dominant);
+
+  // preview UI update
+  swatch.style.background = rgbToCss(nearest.rgb || [238,238,236]);
+  pantoneCode.textContent = nearest.code || '';
+  pantoneName.textContent = nearest.name || '';
+  previewName.textContent = (nameInput.value.trim() || 'OO OOO') + '의 색';
+  pantonePreview.style.display = 'block';
+  outputPreview.style.display = 'block';
+
+  // 2) 합성
+  composeCanvas(nearest);
+});
+
+/* 합성 함수 */
+function composeCanvas(pantone){
+  const iw = previewImage.naturalWidth;
+  const ih = previewImage.naturalHeight;
+  // set high-DPI handling for sharpness on mobile devices
+  const ratio = Math.max(1, window.devicePixelRatio || 1);
+  canvas.width = Math.round(iw * ratio);
+  canvas.height = Math.round(ih * ratio);
+  canvas.style.width = '100%';
+  canvas.style.height = 'auto';
+  const cctx = canvas.getContext('2d');
+  cctx.setTransform(ratio,0,0,ratio,0,0); // work in CSS pixels
+
+  // draw background image
+  cctx.clearRect(0,0,iw,ih);
+  cctx.drawImage(previewImage,0,0,iw,ih);
+
+  // pantone box: width = 25% of image width
+  const boxW = Math.round(iw * 0.25);
+  const boxH = Math.round(boxW * 0.9);
+  const boxX = Math.round(iw - boxW - iw*0.06);
+  const boxY = Math.round((ih - boxH)/2);
+
+  const pantRgb = pantone && pantone.rgb ? pantone.rgb : [238,238,236];
+  cctx.fillStyle = rgbToCss(pantRgb);
+  cctx.fillRect(boxX, boxY, boxW, Math.round(boxH*0.6));
+  // meta white area
+  cctx.fillStyle = '#fff';
+  cctx.fillRect(boxX, boxY + Math.round(boxH*0.6), boxW, Math.round(boxH*0.4));
+  // texts in pantone box
+  cctx.fillStyle = '#111';
+  cctx.textBaseline = 'top';
+  cctx.font = `${Math.round(boxW*0.07)}px sans-serif`;
+  cctx.fillText('PANTONE', boxX + 10, boxY + Math.round(boxH*0.6) + 8);
+  cctx.font = `${Math.round(boxW*0.06)}px sans-serif`;
+  cctx.fillText((pantone&&pantone.code)||'', boxX + 10, boxY + Math.round(boxH*0.6) + 28);
+  cctx.fillText((pantone&&pantone.name)||'', boxX + 10, boxY + Math.round(boxH*0.6) + 48);
+
+  // left-bottom large white texts (no background box)
+  const padding = Math.round(iw * 0.04);
+  // yearFont & nameFont control the size of the two lines
+  const yearFont = Math.round(iw * 0.06); // 제목 크기 (원래 크게 복원)
+  const nameFont = Math.round(iw * 0.085); // 이름 크기 (더 크게)
+  const nameText = (nameInput.value.trim() || 'OO OOO') + '의 색';
+
+  cctx.fillStyle = '#ffffff';
+  cctx.textBaseline = 'bottom';
+  cctx.font = `${yearFont}px sans-serif`;
+  cctx.fillText('2026년 올해의 컬러', padding, ih - padding - (nameFont*0.5) - 4);
+  cctx.font = `${nameFont}px sans-serif`;
+  cctx.fillText(nameText, padding, ih - padding);
+
+  // show canvas, hide preview image block to avoid "두 개" 보이는 현상
+  canvas.style.display = 'block';
+  previewWrap.style.display = 'none';
+  downloadLink.style.display = 'inline-block';
+  downloadLink.href = canvas.toDataURL('image/png');
+}
+
+/* ---------------------------
+   유틸/컬러 분석 함수들
+----------------------------*/
+
+/* 이미지 로드 대기 */
+function waitImageLoad(img){
+  return new Promise((res,rej)=>{
+    if(img.complete && img.naturalWidth) return res();
+    img.onload = ()=>res();
+    img.onerror = ()=>rej(new Error('이미지 로드 실패'));
+  });
+}
+
+/* 빠른 도미넌트 컬러 추출 (샘플링 + kmeans 유사) */
+function sampleDominantColor(img, k=5){
+  const tmp = document.createElement('canvas');
+  const MAX = 480; // 리사이즈 샘플링 폭(성능조절)
+  const w = Math.min(MAX, img.naturalWidth);
+  const h = Math.round(img.naturalHeight * (w / img.naturalWidth));
+  tmp.width = w; tmp.height = h;
+  const tctx = tmp.getContext('2d');
+  tctx.drawImage(img,0,0,w,h);
+  const data = tctx.getImageData(0,0,w,h).data;
+
+  const pixels = [];
+  const step = Math.max(1, Math.floor((w*h)/1200));
+  for(let i=0;i<data.length;i+=4*step){
+    const a = data[i+3];
+    if(a < 125) continue;
+    pixels.push([data[i], data[i+1], data[i+2]]);
+  }
+  if(pixels.length === 0) return [238,238,236];
+
+  // kmeans-ish clustering
+  const centers = [];
+  for(let i=0;i<k;i++) centers.push(pixels[Math.floor(Math.random()*pixels.length)].slice());
+  let changed = true, it=0;
+  while(changed && it < 12){
+    it++;
+    const clusters = Array.from({length:k}, ()=>[]);
+    for(const p of pixels){
+      let best = 0, bd = distSq(p, centers[0]);
+      for(let i=1;i<k;i++){
+        const d = distSq(p, centers[i]);
+        if(d < bd){ bd=d; best=i; }
+      }
+      clusters[best].push(p);
+    }
+    changed = false;
+    for(let i=0;i<k;i++){
+      if(clusters[i].length === 0) continue;
+      const mean = [0,0,0];
+      for(const c of clusters[i]){ mean[0]+=c[0]; mean[1]+=c[1]; mean[2]+=c[2]; }
+      mean[0] = Math.round(mean[0] / clusters[i].length);
+      mean[1] = Math.round(mean[1] / clusters[i].length);
+      mean[2] = Math.round(mean[2] / clusters[i].length);
+      if(mean[0] !== centers[i][0] || mean[1] !== centers[i][1] || mean[2] !== centers[i][2]){
+        centers[i] = mean; changed = true;
+      }
+    }
+  }
+  // 가장 큰 클러스터의 중심 선택
+  const sizes = centers.map(()=>0);
+  for(const p of pixels){
+    let best=0, bd = distSq(p, centers[0]);
+    for(let i=1;i<k;i++){ const d = distSq(p, centers[i]); if(d<bd){bd=d;best=i;} }
+    sizes[best]++;
+  }
+  let maxIdx = 0;
+  for(let i=1;i<sizes.length;i++) if(sizes[i] > sizes[maxIdx]) maxIdx = i;
+  return centers[maxIdx];
+}
+function distSq(a,b){ const dx=a[0]-b[0], dy=a[1]-b[1], dz=a[2]-b[2]; return dx*dx+dy*dy+dz*dz; }
+
+/* 팬톤 리스트에서 가장 가까운 색 찾기 (유클리드 거리) */
+function findNearestPantone(rgb){
+  let best=null, bd=Infinity;
+  for(const p of PANTONE_LIST){
+    const d = distSq(rgb, p.rgb);
+    if(d < bd){ bd = d; best = p; }
+  }
+  return best;
+}
+
+/* 색 헬퍼 */
+function rgbToCss(rgb){ return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`; }
+function rgbToHex(rgb){
+  return '#'+rgb.map(v => v.toString(16).padStart(2,'0')).join('');
+}
+
+/* 데모 편의: preview 클릭으로 파일열기 */
+previewWrap.addEventListener('click',(e)=>{
+  if(e.target.id === 'previewImage' || e.target.id === 'previewWrap') fileInput.click();
+});
+</script>
+</body>
+</html>
